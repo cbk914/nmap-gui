@@ -1,10 +1,79 @@
 #include <windows.h>
 #include <tchar.h>
 #include <commctrl.h>
+#include <stdexcept>
 #include <string>
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "user32.lib")
+
+// Function to handle Windows messages
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+
+// Entry point for the application
+int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdLine, int nCmdShow)
+{
+    try {
+        // Initialize common controls
+        INITCOMMONCONTROLSEX iccex;
+        iccex.dwSize = sizeof(INITCOMMONCONTROLSEX);
+        iccex.dwICC = ICC_WIN95_CLASSES;
+        if (!InitCommonControlsEx(&iccex)) {
+            throw std::runtime_error("Error initializing common controls.");
+        }
+
+        // Create the main window
+        HWND hwnd = CreateWindowEx(0,
+            WC_DIALOG,
+            _T("Nmap Scanner"),
+            WS_OVERLAPPEDWINDOW,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            540,
+            160,
+            NULL,
+            NULL,
+            hInstance,
+            NULL);
+
+        if (!hwnd) {
+            throw std::runtime_error("Error creating main window.");
+        }
+
+        // Show the main window
+        ShowWindow(hwnd, nCmdShow);
+        UpdateWindow(hwnd);
+
+        // Main message loop
+        MSG msg = {};
+        while (GetMessage(&msg, NULL, 0, 0))
+        {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
+    }
+    catch (std::exception& e) {
+        MessageBox(NULL, e.what(), L"Error", MB_OK | MB_ICONERROR);
+        return 1;
+    }
+
+    return 0;
+}
+
+// Function to handle Windows messages
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    switch (uMsg)
+    {
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        break;
+    default:
+        return DefWindowProc(hwnd, uMsg, wParam, lParam);
+    }
+
+    return 0;
+}
 
 // Declare the name of the window class
 const char g_szClassName[] = "myWindowClass";
