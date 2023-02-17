@@ -1,5 +1,10 @@
-#include <Windows.h>
-#include <CommCtrl.h> // for common controls
+#include <windows.h>
+#include <tchar.h>
+#include <commctrl.h>
+#include <string>
+
+#pragma comment(lib, "comctl32.lib")
+#pragma comment(lib, "user32.lib")
 
 // Declare the name of the window class
 const char g_szClassName[] = "myWindowClass";
