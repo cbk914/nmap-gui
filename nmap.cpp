@@ -1,612 +1,287 @@
 #include <windows.h>
-#include <tchar.h>
 #include <commctrl.h>
-#include <stdexcept>
-#include <string>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 
-#pragma comment(lib, "comctl32.lib")
-#pragma comment(lib, "user32.lib")
+#define MAX_BUFFER_SIZE 1024
 
-// Function to handle Windows messages
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+// Global variables
+HWND hwndInput;
+HWND hwndOutput;
+HWND hwndButton;
+HWND hwndCheckBox;
+HWND hwndFileOutput;
+HWND hwndRadioTxt;
+HWND hwndRadioXml;
+HWND hwndRadioHtml;
+char nmapPath[MAX_PATH];
+char nmapOptions[MAX_BUFFER_SIZE];
+char outputBuffer[MAX_BUFFER_SIZE];
 
-// Entry point for the application
-int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdLine, int nCmdShow)
-{
-    try {
-        // Initialize common controls
-        INITCOMMONCONTROLSEX iccex;
-        iccex.dwSize = sizeof(INITCOMMONCONTROLSEX);
-        iccex.dwICC = ICC_WIN95_CLASSES;
-        if (!InitCommonControlsEx(&iccex)) {
-            throw std::runtime_error("Error initializing common controls.");
-        }
+// Function prototypes
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+BOOL RunNmap();
+void AddTextToOutput(char* text);
+void ShowErrorMessage(char* message);
 
-        // Create the main window
-        HWND hwnd = CreateWindowEx(0,
-            WC_DIALOG,
-            _T("Nmap Scanner"),
-            WS_OVERLAPPEDWINDOW,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            540,
-            160,
-            NULL,
-            NULL,
-            hInstance,
-            NULL);
+// Main function
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    // Create the main window
+    WNDCLASS wc = {0};
+    wc.lpfnWndProc = WndProc;
+    wc.hInstance = hInstance;
+    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wc.lpszClassName = "MainWindowClass";
+    RegisterClass(&wc);
 
-        if (!hwnd) {
-            throw std::runtime_error("Error creating main window.");
-        }
-
-        // Show the main window
-        ShowWindow(hwnd, nCmdShow);
-        UpdateWindow(hwnd);
-
-        // Main message loop
-        MSG msg = {};
-        while (GetMessage(&msg, NULL, 0, 0))
-        {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-        }
-    }
-    catch (std::exception& e) {
-        MessageBox(NULL, e.what(), L"Error", MB_OK | MB_ICONERROR);
+    HWND hwnd = CreateWindow("MainWindowClass", "Nmap GUI",
+        WS_OVERLAPPEDWINDOW, 50, 50, 700, 500, NULL, NULL, hInstance, NULL);
+    if (!hwnd) {
+        ShowErrorMessage("Failed to create window");
         return 1;
     }
 
-    return 0;
-}
-
-// Function to handle Windows messages
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
-{
-    switch (uMsg)
-    {
-    case WM_DESTROY:
-        PostQuitMessage(0);
-        break;
-    default:
-        return DefWindowProc(hwnd, uMsg, wParam, lParam);
+    // Create the input edit control
+    hwndInput = CreateWindowEx(0, "EDIT", NULL,
+        WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL,
+        10, 10, 600, 200, hwnd, NULL, hInstance, NULL);
+    if (!hwndInput) {
+        ShowErrorMessage("Failed to create input control");
+        return 1;
     }
 
-    return 0;
-}
-
-// Declare the name of the window class
-const char g_szClassName[] = "myWindowClass";
-const int g_nWidth = 400;
-const int g_nHeight = 250;
-
-// Step 1: Registering the Window Class
-WNDCLASSEX wc;
-ZeroMemory(&wc, sizeof(wc));
-wc.cbSize = sizeof(wc);
-wc.style = 0;
-wc.lpfnWndProc = WndProc;
-wc.cbClsExtra = 0;
-wc.cbWndExtra = 0;
-wc.hInstance = hInstance;
-wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
-wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-wc.lpszMenuName = NULL;
-wc.lpszClassName = g_szClassName;
-wc.hIconSm = LoadIcon(NULL, IDI_APPLICATION);
-if (!RegisterClassEx(&wc)) {
-    MessageBox(NULL, "Window Registration Failed!", "Error!", MB_ICONEXCLAMATION | MB_OK);
-    return 0;
-}
-
-// Step 2: Creating the Window
-HWND hwnd = CreateWindowEx(
-    WS_EX_CLIENTEDGE,
-    g_szClassName,
-    "Nmap GUI",
-    WS_OVERLAPPEDWINDOW,
-    CW_USEDEFAULT, CW_USEDEFAULT, g_nWidth, g_nHeight,
-    NULL, NULL, hInstance, NULL);
-
-if (hwnd == NULL) {
-    MessageBox(NULL, "Window Creation Failed!", "Error!", MB_ICONEXCLAMATION | MB_OK);
-    return 0;
-}
-
-// Step 3: Show the Window
-ShowWindow(hwnd, nCmdShow);
-UpdateWindow(hwnd);
-
-
-// Step 4: the Window Procedure
-LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-    static HWND hwndInput;
-    static HWND hwndButton;
-    static HWND hwndOutput;
-    static HWND hwndProgressBar;
-    static HANDLE hChildProcess;
-    static DWORD dwChildThreadId;
-    static STARTUPINFO si;
-    static PROCESS_INFORMATION pi;
-
-    switch (msg)
-    {
-    case WM_CREATE:
-        // Create the input field
-        hwndInput = CreateWindowEx(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL, 10, 10, g_nWidth - 40, 50, hwnd, NULL, GetModuleHandle(NULL), NULL);
-        SetWindowText(hwndInput, "nmap -sS -T4 -A -v");
-
-        // Create the run button
-        hwndButton = CreateWindow("BUTTON", "Run", WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON, g_nWidth / 2 - 50, 70, 100, 30, hwnd, NULL, GetModuleHandle(NULL), NULL);
-
-        // Create the output field
-        hwndOutput = CreateWindowEx(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_READONLY, 10, 110, g_nWidth - 40, g_nHeight - 160, hwnd, NULL, GetModuleHandle(NULL), NULL);
-
-        // Create the progress bar
-        hwndProgressBar = CreateWindowEx(0, PROGRESS_CLASS, "", WS_CHILD | WS_VISIBLE | PBS_SMOOTH, 10, g_nHeight - 40, g_nWidth - 40, 20, hwnd, NULL, GetModuleHandle(NULL), NULL);
-        SendMessage(hwndProgressBar, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
-        SendMessage(hwndProgressBar, PBM_SETSTEP, (WPARAM)1, 0);
-
-        // Initialize the process information structure
-        ZeroMemory(&si, sizeof(si));
-        si.cb = sizeof(si);
-        si.dwFlags = STARTF_USESTDHANDLES;
-
-        // Redirect output to our window
-        si.hStdOutput = (HANDLE)_get_osfhandle(_open_osfhandle((intptr_t)CreateFile("CONOUT$", GENERIC_WRITE | GENERIC_READ, FILE_SHARE_WRITE | FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL), _O_TEXT));
-        si.hStdError = si.hStdOutput;
-
-        break;
-    case WM_COMMAND:
-        if ((HWND)lParam == hwndButton) {
-            // Get the command line text
-            char szCommandLine[1024];
-            GetWindowText(hwndInput, szCommandLine, sizeof(szCommandLine));
-
-            // Disable the button
-            EnableWindow(hwndButton, FALSE);
-
-            // Clear the output field
-            SetWindowText(hwndOutput, "");
-
-            // Reset the progress bar
-            SendMessage(hwndProgressBar, PBM_SETPOS, 0, 0);
-
-            // Create the child process
-            if (CreateProcess(NULL, szCommandLine, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi
-        )) {
-            hChildProcess = pi.hProcess;
-            dwChildThreadId = pi.dwThreadId;
-
-            // Start a loop to read the child process output
-            char szOutput[1024];
-            DWORD dwBytesRead;
-            DWORD dwTotalBytesRead = 0;
-            while (TRUE) {
-                if (!ReadFile(si.hStdOutput, szOutput, sizeof(szOutput), &dwBytesRead, NULL) || dwBytesRead == 0) {
-                    break;
-                }
-
-                szOutput[dwBytesRead] = 0;
-                dwTotalBytesRead += dwBytesRead;
-
-                // Display the output in the output field
-                int nTextLength = GetWindowTextLength(hwndOutput);
-                SendMessage(hwndOutput, EM_SETSEL, (WPARAM)nTextLength, (LPARAM)nTextLength);
-                SendMessage(hwndOutput, EM_REPLACESEL, 0, (LPARAM)szOutput);
-
-                // Update the progress bar
-                int nProgress = ((float)dwTotalBytesRead / (float)pi.dwProcessId) * 100.0;
-                SendMessage(hwndProgressBar, PBM_SETPOS, nProgress, 0);
-            }
-
-            // Close the handles to the child process
-            CloseHandle(hChildProcess);
-            CloseHandle(pi.hThread);
-        }
-
-        // Enable the button
-        EnableWindow(hwndButton, TRUE);
+    // Create the output edit control
+    hwndOutput = CreateWindowEx(0, "EDIT", NULL,
+        WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
+        10, 220, 600, 200, hwnd, NULL, hInstance, NULL);
+    if (!hwndOutput) {
+        ShowErrorMessage("Failed to create output control");
+        return 1;
     }
 
-    break;
-case WM_CLOSE:
-    // Terminate the child process if it is still running
-    if (hChildProcess) {
-        TerminateProcess(hChildProcess, 0);
+    // Create the "Run Nmap" button
+    hwndButton = CreateWindow("BUTTON", "Run Nmap", WS_VISIBLE | WS_CHILD,
+        10, 430, 100, 30, hwnd, NULL, hInstance, NULL);
+    if (!hwndButton) {
+        ShowErrorMessage("Failed to create button control");
+        return 1;
     }
 
-    // Destroy the window
-    DestroyWindow(hwnd);
-
-    break;
-case WM_DESTROY:
-    PostQuitMessage(0);
-
-    break;
-default:
-    return DefWindowProc(hwnd, msg, wParam, lParam);
-}
-
-return 0;
-}
-
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
-{
-
-// Step 5: The Message Loop
-MSG msg;
-while (GetMessage(&msg, NULL, 0, 0) > 0)
-{
-    TranslateMessage
-(&msg);
-DispatchMessage(&msg);
-}
-
-return (int)msg.wParam;
-}
-
-// Function to get the nmap command line parameters
-void GetNmapParameters(HWND hwnd, char *szParams, int nMaxParams)
-{
-char szBuffer[1024];
-// Get the target IP address or hostname from the input field
-GetWindowText(hwndTarget, szBuffer, sizeof(szBuffer));
-if (strlen(szBuffer) > 0) {
-    strcat_s(szParams, nMaxParams, szBuffer);
-}
-
-// Get the port range from the input field
-GetWindowText(hwndPortRange, szBuffer, sizeof(szBuffer));
-if (strlen(szBuffer) > 0) {
-    strcat_s(szParams, nMaxParams, " -p ");
-    strcat_s(szParams, nMaxParams, szBuffer);
-}
-
-// Get the scan type from the combo box
-int nSelectedIndex = SendMessage(hwndScanType, CB_GETCURSEL, 0, 0);
-if (nSelectedIndex != CB_ERR) {
-    int nSelectedType = SendMessage(hwndScanType, CB_GETITEMDATA, nSelectedIndex, 0);
-    if (nSelectedType != CB_ERR) {
-        switch (nSelectedType) {
-        case SCAN_TYPE_TCP:
-            strcat_s(szParams, nMaxParams, " -sT");
-            break;
-        case SCAN_TYPE_UDP:
-            strcat_s(szParams, nMaxParams, " -sU");
-            break;
-        case SCAN_TYPE_SYN:
-            strcat_s(szParams, nMaxParams, " -sS");
-            break;
-        }
-    }
-}
-}
-
-// Function to run the nmap command
-BOOL RunNmapCommand(HWND hwndOutput, HWND hwndProgressBar, char *szParams)
-{
-// Create the command line to run nmap
-char szCommandLine[2048];
-strcpy_s(szCommandLine, sizeof(szCommandLine), "nmap.exe ");
-strcat_s(szCommandLine, sizeof(szCommandLine), szParams);
-// read the child process's stdout and stderr and display the output in the output window
-char szOutput[1024];
-DWORD dwBytesRead;
-BOOL bSuccess;
-while (1) {
-// Check for messages in the message queue
-MSG msg;
-while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
-TranslateMessage(&msg);
-DispatchMessage(&msg);
-}
-    // Check if the child process has exited
-    DWORD dwExitCode;
-    if (GetExitCodeProcess(pi.hProcess, &dwExitCode)) {
-        if (dwExitCode != STILL_ACTIVE) {
-            break;
-        }
+    // Create the "Use Vulners" checkbox
+    hwndCheckBox = CreateWindow("BUTTON", "Use Vulners", WS_VISIBLE | WS_CHILD | BS_CHECKBOX,
+        140, 435, 100, 20, hwnd, NULL, hInstance, NULL);
+    if (!hwndCheckBox) {
+        ShowErrorMessage("Failed to create checkbox control");
+        return 1;
     }
 
-    // Read from the child process's stdout
-    bSuccess = ReadFile(hChildStdoutRead, szOutput, sizeof(szOutput) - 1, &dwBytesRead, NULL);
-    if (bSuccess && dwBytesRead > 0) {
-        szOutput[dwBytesRead] = '\0';
-        SendMessage(hwndOutput, EM_REPLACESEL, 0, (LPARAM)szOutput);
+        // Create the "Output to file" checkbox
+    HWND hwndCheckFileOutput = CreateWindow("BUTTON", "Output to file", WS_VISIBLE | WS_CHILD | BS_CHECKBOX,
+        260, 435, 100, 20, hwnd, NULL, hInstance, NULL);
+    if (!hwndCheckFileOutput) {
+        ShowErrorMessage("Failed to create checkbox control");
+        return 1;
     }
 
-    // Read from the child process's stderr
-    bSuccess = ReadFile(hChildStderrRead, szOutput, sizeof(szOutput) - 1, &dwBytesRead, NULL);
-    if (bSuccess && dwBytesRead > 0) {
-        szOutput[dwBytesRead] = '\0';
-        SendMessage(hwndOutput, EM_REPLACESEL, 0, (LPARAM)szOutput);
+    // Create the "TXT" radio button
+    hwndRadioTxt = CreateWindow("BUTTON", "TXT", WS_VISIBLE | WS_CHILD | BS_AUTORADIOBUTTON | WS_GROUP,
+        380, 435, 40, 20, hwnd, NULL, hInstance, NULL);
+    if (!hwndRadioTxt) {
+        ShowErrorMessage("Failed to create radio button control");
+        return 1;
     }
 
-    // Update the progress bar based on the child process's CPU usage
-    FILETIME ftCreationTime;
-    FILETIME ftExitTime;
-    FILETIME ftKernelTime;
-    FILETIME ftUserTime;
-    if (GetProcessTimes(pi.hProcess, &ftCreationTime, &ftExitTime, &ftKernelTime, &ftUserTime)) {
-        ULARGE_INTEGER liKernelTime;
-        liKernelTime.LowPart = ftKernelTime.dwLowDateTime;
-        liKernelTime.HighPart = ftKernelTime.dwHighDateTime;
-        ULARGE_INTEGER liUserTime;
-        liUserTime.LowPart = ftUserTime.dwLowDateTime;
-        liUserTime.HighPart = ftUserTime.dwHighDateTime;
-        ULONGLONG ullTotalTime = liKernelTime.QuadPart + liUserTime.QuadPart;
-        ULONGLONG ullElapsedTime = GetTickCount() - dwStartTime;
-        int nProgress = (int)(ullTotalTime * 100 / ullElapsedTime);
-        SendMessage(hwndProgressBar, PBM_SETPOS, nProgress, 0);
+    // Create the "XML" radio button
+    hwndRadioXml = CreateWindow("BUTTON", "XML", WS_VISIBLE | WS_CHILD | BS_AUTORADIOBUTTON,
+        430, 435, 40, 20, hwnd, NULL, hInstance, NULL);
+    if (!hwndRadioXml) {
+        ShowErrorMessage("Failed to create radio button control");
+        return 1;
     }
-}
 
-// Read any remaining output from the child process's stdout and stderr
-while (1) {
-    MSG msg;
-    while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+    // Create the "HTML" radio button
+    hwndRadioHtml = CreateWindow("BUTTON", "HTML", WS_VISIBLE | WS_CHILD | BS_AUTORADIOBUTTON,
+        480, 435, 50, 20, hwnd, NULL, hInstance, NULL);
+    if (!hwndRadioHtml) {
+        ShowErrorMessage("Failed to create radio button control");
+        return 1;
+    }
+
+    // Create the "File output" edit control
+    hwndFileOutput = CreateWindowEx(0, "EDIT", NULL,
+        WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
+        540, 435, 200, 20, hwnd, NULL, hInstance, NULL);
+    if (!hwndFileOutput) {
+        ShowErrorMessage("Failed to create file output control");
+        return 1;
+    }
+
+    // Get the path to Nmap
+    if (!SearchPath(NULL, "nmap.exe", NULL, MAX_PATH, nmapPath, NULL)) {
+        ShowErrorMessage("Could not find Nmap on your system. Please install Nmap and try again.");
+        return 1;
+    }
+
+    // Run the message loop
+    MSG msg = {};
+    while (GetMessage(&msg, NULL, 0, 0)) {
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
 
-    DWORD dwBytesRead;
-    BOOL bSuccess = ReadFile(hChildStdoutRead, szOutput, sizeof(szOutput) - 1, &dwBytesRead, NULL);
-    if (bSuccess && dwBytesRead > 0) {
-        szOutput[dwBytesRead] = '\0';
-        SendMessage(hwndOutput, EM_REPLACESEL, 0, (LPARAM)szOutput);
-    }
-
-    bSuccess = ReadFile(hChildStderrRead, szOutput, sizeof(szOutput) - 1, &dwBytesRead, NULL);
-    if (bSuccess && dwBytesRead > 0) {
-        szOutput[dwBytesRead] = '\0';
-        SendMessage(hwndOutput, EM_REPLACESEL, 0, (LPARAM)szOutput);
-    }
-
-    // Exit the loop when there is no more output to read
-    if (!
-    // Check if the child process has exited
-    DWORD dwExitCode;
-    if (GetExitCodeProcess(pi.hProcess, &dwExitCode)) {
-        if (dwExitCode != STILL_ACTIVE) {
-            break;
-        }
-    }
-}
-
-// Disable the progress bar and enable the "Run" button
-EnableWindow(hwndProgressBar, FALSE);
-EnableWindow(hwndButton, TRUE);
-
-// Close the handles to the child process and pipes
-CloseHandle(pi.hProcess);
-CloseHandle(pi.hThread);
-CloseHandle(hChildStdinRead);
-CloseHandle(hChildStdinWrite);
-CloseHandle(hChildStdoutRead);
-CloseHandle(hChildStdoutWrite);
-CloseHandle(hChildStderrRead);
-CloseHandle(hChildStderrWrite);
-}
-
-// Window procedure for the main window
-LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-static HWND hwndButton;
-static HWND hwndOutput;
-static HWND hwndProgressBar;
-static HANDLE hProcess;
-switch (msg)
-{
-case WM_CREATE:
-    // Create the "Run" button
-    hwndButton = CreateWindowEx(0, L"BUTTON", L"Run", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-        10, 10, 100, 25, hwnd, (HMENU)IDC_RUN_BUTTON, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
-
-    // Create the output window
-    hwndOutput = CreateWindowEx(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL,
-        10, 45, 480, 300, hwnd, (HMENU)IDC_OUTPUT_WINDOW, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
-
-    // Create the progress bar
-    hwndProgressBar = CreateWindowEx(0, PROGRESS_CLASS, NULL, WS_CHILD | WS_VISIBLE,
-        10, 355, 480, 20, hwnd, (HMENU)IDC_PROGRESS_BAR, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
-
-    // Set the range of the progress bar to 0-100
-    SendMessage(hwndProgressBar, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
-
-    break;
-
-case WM_COMMAND:
-    if (LOWORD(wParam) == IDC_RUN_BUTTON && HIWORD(wParam) == BN_CLICKED) {
-        // Disable the "Run" button and enable the progress bar
-        EnableWindow(hwndButton, FALSE);
-        EnableWindow(hwndProgressBar, TRUE);
-
-        // Start the child process
-        TCHAR szCommandLine[1024];
-        GetDlgItemText(hwnd, IDC_COMMAND_LINE, szCommandLine, sizeof(szCommandLine) / sizeof(TCHAR));
-        StartChildProcess(szCommandLine, hwndOutput, hwndProgressBar, hwndButton);
-
-        // Clear the command line text
-        SetDlgItemText(hwnd, IDC_COMMAND_LINE, L"");
-    }
-    break;
-
-case WM_DESTROY:
-    // Terminate the child process if it is still running
-    if (hProcess != NULL) {
-        TerminateProcess(hProcess, 1);
-        CloseHandle(hProcess);
-    }
-
-    // Quit the application
-    PostQuitMessage(0);
-    break;
-
-default:
-    return DefWindowProc(hwnd, msg, wParam, lParam);
-}
-
-return 0;
-}
-
-// Entry point for the application
-int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow)
-{
-// Register the window class
-const wchar_t CLASS_NAME
-= L"NmapGUI";
-
-WNDCLASS wc = { };
-wc.lpfnWndProc = WndProc;
-wc.hInstance = hInstance;
-wc.lpszClassName = CLASS_NAME;
-
-RegisterClass(&wc);
-
-// Create the main window
-HWND hwnd = CreateWindowEx(0, CLASS_NAME, L"NmapGUI", WS_OVERLAPPEDWINDOW,
-    CW_USEDEFAULT, CW_USEDEFAULT, 520, 420, NULL, NULL, hInstance, NULL);
-
-if (hwnd == NULL) {
     return 0;
 }
 
-// Create the "Command line" label
-CreateWindow(L"STATIC", L"Command line:", WS_CHILD | WS_VISIBLE,
-    10, 385, 100, 20, hwnd, NULL, hInstance, NULL);
+// Window procedure
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_COMMAND:
+        if ((HWND)lParam == hwndButton && HIWORD(wParam) == BN_CLICKED) {
+            // Get the Nmap options from the input control
+            int inputLength = GetWindowTextLength(hwndInput);
+            if (inputLength >= MAX_BUFFER_SIZE) {
+                ShowErrorMessage("Input is too long.");
+                return 0;
+            }
+            GetWindowText(hwndInput, nmapOptions, MAX_BUFFER_SIZE);
 
-// Create the "Command line" text box
-CreateWindowEx(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-    110, 385, 380, 20, hwnd, (HMENU)IDC_COMMAND_LINE, hInstance, NULL);
+            // Add the "-oX" or "-oN" option based on the selected output format
+            if (IsDlgButtonChecked(hwnd, hwndRadioXml)) {
+                strcat_s(nmapOptions, " -oX ");
+            }
+            else if (IsDlgButtonChecked(hwnd, hwndRadioTxt)) {
+                strcat_s(nmapOptions, " -oN ");
+            }
+            else if (IsDlgButtonChecked(hwnd, hwndRadioHtml))
+            {
+                strcat_s(nmapOptions, " -oX ");
+            }
 
-// Show the main window
-ShowWindow(hwnd, nCmdShow);
+            // If "Output to file" is checked, add the output file path to the options
+            if (IsDlgButtonChecked(hwnd, hwndCheckFileOutput)) {
+                char outputFilePath[MAX_PATH];
+                GetWindowText(hwndFileOutput, outputFilePath, MAX_PATH);
 
-// Run the message loop
-MSG msg = { };
-while (GetMessage(&msg, NULL, 0, 0)) {
-    TranslateMessage(&msg);
-    DispatchMessage(&msg);
-}
+                // Make sure the output file path is not too long
+                if (strlen(outputFilePath) >= MAX_PATH) {
+                    ShowErrorMessage("Output file path is too long.");
+                    return 0;
+                }
 
-return 0;
-LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-switch (msg)
-{
-case WM_CREATE:
-// Create the "Scan" button
-CreateWindow(L"BUTTON", L"Scan", WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-10, 10, 80, 25, hwnd, (HMENU)IDC_SCAN_BUTTON, GetModuleHandle(NULL), NULL);
-    // Create the "Host or network" label
-    CreateWindow(L"STATIC", L"Host or network:", WS_CHILD | WS_VISIBLE,
-        10, 50, 100, 20, hwnd, NULL, GetModuleHandle(NULL), NULL);
+                strcat_s(nmapOptions, "\"");
+                strcat_s(nmapOptions, outputFilePath);
+                strcat_s(nmapOptions, "\"");
+            }
 
-    // Create the "Host or network" text box
-    CreateWindowEx(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-        110, 50, 380, 20, hwnd, (HMENU)IDC_HOST_BOX, GetModuleHandle(NULL), NULL);
+            // Add the "--script vulners" option if "Use Vulners" is checked
+            if (IsDlgButtonChecked(hwnd, hwndCheckBox)) {
+                strcat_s(nmapOptions, " --script vulners ");
+            }
 
-    // Create the "Port range" label
-    CreateWindow(L"STATIC", L"Port range:", WS_CHILD | WS_VISIBLE,
-        10, 80, 100, 20, hwnd, NULL, GetModuleHandle(NULL), NULL);
+            // Disable the input control and "Run Nmap" button
+            EnableWindow(hwndInput, FALSE);
+            EnableWindow(hwndButton, FALSE);
 
-    // Create the "Port range" text box
-    CreateWindowEx(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-        110, 80, 380, 20, hwnd, (HMENU)IDC_PORT_BOX, GetModuleHandle(NULL), NULL);
-
-    // Create the "Output file" label
-    CreateWindow(L"STATIC", L"Output file:", WS_CHILD | WS_VISIBLE,
-        10, 110, 100, 20, hwnd, NULL, GetModuleHandle(NULL), NULL);
-
-    // Create the "Output file" text box
-    CreateWindowEx(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-        110, 110, 380, 20, hwnd, (HMENU)IDC_OUTPUT_BOX, GetModuleHandle(NULL), NULL);
-
-    // Create the "Verbose output" check box
-    CreateWindow(L"BUTTON", L"Verbose output", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-        10, 140, 100, 20, hwnd, (HMENU)IDC_VERBOSE_BOX, GetModuleHandle(NULL), NULL);
-
-    break;
-
-case WM_COMMAND:
-    if (LOWORD(wParam) == IDC_SCAN_BUTTON && HIWORD(wParam) == BN_CLICKED)
-    {
-        // Get the input values from the text boxes and check box
-        WCHAR host[1024];
-        WCHAR port[1024];
-        WCHAR output[1024];
-        BOOL verbose = SendMessage(GetDlgItem(hwnd, IDC_VERBOSE_BOX), BM_GETCHECK, 0, 0) == BST_CHECKED;
-
-        GetWindowText(GetDlgItem(hwnd, IDC_HOST_BOX), host, 1024);
-        GetWindowText(GetDlgItem(hwnd, IDC_PORT_BOX), port, 1024);
-        GetWindowText(GetDlgItem(hwnd, IDC_OUTPUT_BOX), output, 1024);
-
-        // Build the Nmap command line
-        WCHAR commandLine[4096];
-        swprintf_s(commandLine, 4096, L"nmap.exe %s %s -oN %s %s",
-            host, port, output, verbose ? L"-v" : L"");
-
-        // Run the Nmap command
-        STARTUPINFO si = { sizeof(si) };
-        PROCESS_INFORMATION pi;
-
-        if (CreateProcess(NULL, command
-        Line, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
-        {
-            CloseHandle(pi.hThread);
-            CloseHandle(pi.hProcess);
+            // Run Nmap on a separate thread
+            CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)RunNmap, NULL, 0, NULL);
         }
-        else
-        {
-            MessageBox(hwnd, L"Error running Nmap command.", L"Error", MB_OK | MB_ICONERROR);
-        }
+        break;
+
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        break;
+
+    default:
+        return DefWindowProc(hwnd, msg, wParam, lParam);
     }
-    break;
 
-case WM_DESTROY:
-    PostQuitMessage(0);
-    break;
-
-default:
-    return DefWindowProc(hwnd, msg, wParam, lParam);
+    return 0;
 }
 
-return 0;
+// Runs Nmap and writes the output to the output edit control
+BOOL RunNmap() {
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
+    HANDLE hChildStd_OUT_Rd = NULL;
+    HANDLE hChildStd_OUT_Wr = NULL;
+    if (!CreatePipe(&hChildStd_OUT_Rd, &hChildStd_OUT_Wr, &sa, 0)) {
+        ShowErrorMessage("Failed to create pipe for Nmap output.");
+        return FALSE;
+    }
+
+    // Set the console mode to enable ANSI escape codes
+    HANDLE hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hStdout == INVALID_HANDLE_VALUE) {
+        ShowErrorMessage("Failed to get standard output handle.");
+        return FALSE;
+    }
+
+    DWORD dwMode = 0;
+    if (!GetConsoleMode(hStdout, &dwMode)) {
+        ShowErrorMessage("Failed to get console mode.");
+        return FALSE;
+    }
+
+    dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+    if (!SetConsoleMode(hStdout, dwMode)) {
+        ShowErrorMessage("Failed to set console mode.");
+        return FALSE;
+    }
+
+    // Create the Nmap process
+    STARTUPINFO si = { sizeof(si) };
+    si.dwFlags = STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES;
+    si.wShowWindow = SW_HIDE;
+    si.hStdError = hChildStd_OUT_Wr;
+    si.hStdOutput = hChildStd_OUT_Wr;
+
+    PROCESS_INFORMATION pi = {};
+    if (!CreateProcess(nmapPath, nmapOptions, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
+        ShowErrorMessage("Failed to create Nmap process.");
+        return FALSE;
+    }
+
+    // Read the Nmap output from the pipe
+    CHAR chBuf[MAX_BUFFER_SIZE];
+    DWORD dwRead, dwWritten;
+    BOOL bSuccess = FALSE;
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+
+        for (;;) {
+        bSuccess = ReadFile(hChildStd_OUT_Rd, chBuf, MAX_BUFFER_SIZE, &dwRead, NULL);
+        if (!bSuccess || dwRead == 0) {
+            break;
+        }
+
+        chBuf[dwRead] = '\0';
+        AddTextToOutput(chBuf);
+        memset(chBuf, 0, sizeof(chBuf));
+    }
+
+    // Wait for the Nmap process to exit
+    WaitForSingleObject(pi.hProcess, INFINITE);
+
+    // Enable the input control and "Run Nmap" button
+    EnableWindow(hwndInput, TRUE);
+    EnableWindow(hwndButton, TRUE);
+
+    // Close the handles
+    CloseHandle(hChildStd_OUT_Rd);
+    CloseHandle(hChildStd_OUT_Wr);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+    return TRUE;
 }
 
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
-LPSTR lpCmdLine, int nCmdShow)
-{
-// Register the window class
-WNDCLASSEX wc = { sizeof(wc) };
-wc.style = CS_HREDRAW | CS_VREDRAW;
-wc.lpfnWndProc = WndProc;
-wc.hInstance = hInstance;
-wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-wc.lpszClassName = L"NmapGUIWindowClass";
-RegisterClassEx(&wc);
-// Create the window
-HWND hwnd = CreateWindowEx(0, L"NmapGUIWindowClass", L"Nmap GUI",
-    WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 520, 220,
-    NULL, NULL, hInstance, NULL);
-
-if (!hwnd)
-    return 1;
-
-ShowWindow(hwnd, nCmdShow);
-UpdateWindow(hwnd);
-
-// Run the message loop
-MSG msg = { 0 };
-while (GetMessage(&msg, NULL, 0, 0))
-{
-    TranslateMessage(&msg);
-    DispatchMessage(&msg);
+// Adds text to the output edit control
+void AddTextToOutput(char* text) {
+    int textLength = GetWindowTextLength(hwndOutput);
+    SendMessage(hwndOutput, EM_SETSEL, textLength, textLength);
+    SendMessage(hwndOutput, EM_REPLACESEL, FALSE, (LPARAM)text);
 }
 
-return (int)msg.wParam;
+// Shows an error message box
+void ShowErrorMessage(char* message) {
+    MessageBox(NULL, message, "Error", MB_ICONERROR | MB_OK);
 }
